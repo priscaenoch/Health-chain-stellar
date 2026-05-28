@@ -229,13 +229,27 @@ export class SorobanService {
         { eventId: callback.eventId },
       );
 
-      // TODO: persist state.status ('confirmed' | 'final') to database /
-      //       publish domain event so downstream workflows can react.
+      if (state.status === 'confirmed' || state.status === 'final') {
+        this.logger.log('blockchain.transaction.confirmed', {
+          transactionHash: callback.transactionHash,
+          status: state.status,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } else if (callback.status === 'failed') {
+      this.logger.warn('blockchain.transaction.failed', {
+        transactionHash: callback.transactionHash,
+        status: 'failed',
+        error: callback.details ?? null,
+        timestamp: new Date().toISOString(),
+      });
+    } else if (callback.status === 'pending') {
+      this.logger.log('blockchain.transaction.pending', {
+        transactionHash: callback.transactionHash,
+        status: 'pending',
+        timestamp: new Date().toISOString(),
+      });
     }
-
-    // TODO: handle 'pending' and 'failed' status transitions.
-
-    await Promise.resolve();
   }
 
   /**
