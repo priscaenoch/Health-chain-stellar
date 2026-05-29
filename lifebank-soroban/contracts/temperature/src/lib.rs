@@ -178,64 +178,82 @@ impl TemperatureContract {
         Ok(())
     }
 
-    pub fn get_violations(env: Env, unit_id: u64) -> Result<Vec<TemperatureReading>, ContractError> {
+    pub fn get_violations(env: Env, unit_id: u64, page: u32, page_size: u32) -> Result<Vec<TemperatureReading>, ContractError> {
+        let page_size = page_size.min(100);
         let mut violations = Vec::new(&env);
+        let mut collected = 0u32;
+        let mut seen = 0u32;
+        let skip = page.saturating_mul(page_size);
+
         let mut page_num: u32 = 0;
-        
+
         loop {
             let page_len = storage::get_temp_page_len(&env, unit_id, page_num);
             if page_len == 0 && page_num > 0 {
                 break;
             }
             if page_len == 0 {
-                page_num = page_num.saturating_add(1); // Prevent overflow
+                page_num = page_num.saturating_add(1);
                 continue;
             }
 
-            let page = storage::get_temp_page(&env, unit_id, page_num);
+            let page_data = storage::get_temp_page(&env, unit_id, page_num);
             for i in 0..page_len {
-                let reading = page.get(i).unwrap_or_default();
+                let reading = page_data.get(i).unwrap_or_default();
                 if reading.is_violation {
-                    violations.push_back(reading);
+                    if seen >= skip && collected < page_size {
+                        violations.push_back(reading);
+                        collected = collected.saturating_add(1);
+                    }
+                    seen = seen.saturating_add(1);
+                    if collected >= page_size {
+                        return Ok(violations);
+                    }
                 }
             }
 
-            page_num = page_num.saturating_add(1); // Prevent overflow
+            page_num = page_num.saturating_add(1);
         }
 
         Ok(violations)
     }
 
-    /// Get all temperature readings for a blood unit
-    pub fn get_readings(env: Env, unit_id: u64) -> Result<Vec<TemperatureReading>, ContractError> {
+    /// Get all temperature readings for a blood unit (paginated)
+    pub fn get_readings(env: Env, unit_id: u64, page: u32, page_size: u32) -> Result<Vec<TemperatureReading>, ContractError> {
+        let page_size = page_size.min(100);
         let mut all_readings = Vec::new(&env);
+        let mut collected = 0u32;
+        let mut seen = 0u32;
+        let skip = page.saturating_mul(page_size);
 
         let mut page_num: u32 = 0;
         loop {
-            // Get the stored length for this page
             let page_len = storage::get_temp_page_len(&env, unit_id, page_num);
 
-            // If page_len is 0 and we've checked pages before, we're done
             if page_len == 0 && page_num > 0 {
                 break;
             }
 
-            // If no entries in this page yet, try next page
             if page_len == 0 {
-                page_num = page_num.saturating_add(1); // Prevent overflow
+                page_num = page_num.saturating_add(1);
                 continue;
             }
 
-            // Get the page
-            let page = storage::get_temp_page(&env, unit_id, page_num);
+            let page_data = storage::get_temp_page(&env, unit_id, page_num);
 
-            // Only iterate up to the stored length, not the full page size
             for i in 0..page_len {
-                let reading = page.get(i).unwrap_or_default();
-                all_readings.push_back(reading);
+                let reading = page_data.get(i).unwrap_or_default();
+                if seen >= skip && collected < page_size {
+                    all_readings.push_back(reading);
+                    collected = collected.saturating_add(1);
+                }
+                seen = seen.saturating_add(1);
+                if collected >= page_size {
+                    return Ok(all_readings);
+                }
             }
 
-            page_num = page_num.saturating_add(1); // Prevent overflow
+            page_num = page_num.saturating_add(1);
         }
 
         Ok(all_readings)
@@ -430,6 +448,12 @@ impl TemperatureContract {
             return Err(ContractError::Unauthorized);
         }
 
+        // Verify unit has recorded violations before reporting
+        let violations = Self::get_violations(env.clone(), unit_id, 0, 1)?;
+        if violations.is_empty() {
+            return Err(ContractError::UnitNotFound);
+        }
+
         let coordinator_addr: Address = env
             .storage()
             .instance()
@@ -485,7 +509,7 @@ mod tests {
         }
 
         // Get violations
-        let violations = client.get_violations(&unit_id);
+        let violations = client.get_violations(&unit_id, &0u32, &100u32);
 
         // Should have zero violations since all logged readings are within threshold
         assert_eq!(violations.len(), 0, "Expected no violations but got {}", violations.len());
@@ -511,7 +535,7 @@ mod tests {
         client.log_reading(&unit_id, &100, &1020);
 
         // Get violations
-        let violations = client.get_violations(&unit_id);
+        let violations = client.get_violations(&unit_id, &0u32, &100u32);
 
         // Should have exactly 1 violation
         assert_eq!(violations.len(), 1, "Expected 1 violation but got {}", violations.len());
@@ -541,7 +565,7 @@ mod tests {
         }
 
         // Get violations
-        let violations = client.get_violations(&unit_id);
+        let violations = client.get_violations(&unit_id, &0u32, &100u32);
 
         // Should have exactly 5 violations (indices 9, 19, 29, 39, 49)
         assert_eq!(
@@ -582,7 +606,7 @@ mod tests {
         }
 
         // Get all readings
-        let readings = client.get_readings(&unit_id);
+        let readings = client.get_readings(&unit_id, &0u32, &100u32);
 
         // Should have exactly 21 readings, not 40 (2 pages)
         assert_eq!(

@@ -65,13 +65,38 @@ impl RequestContract {
         }
     }
 
+    fn is_valid_transition(from: &RequestStatus, to: &RequestStatus) -> bool {
+        matches!(
+            (from, to),
+            (RequestStatus::Pending, RequestStatus::Approved)
+                | (RequestStatus::Pending, RequestStatus::Rejected)
+                | (RequestStatus::Approved, RequestStatus::Rejected)
+                | (RequestStatus::Approved, RequestStatus::InProgress)
+                | (RequestStatus::Approved, RequestStatus::Fulfilled)
+                | (RequestStatus::InProgress, RequestStatus::Fulfilled)
+        )
+    }
+
     fn release_reservation_if_present(env: &Env, request: &mut BloodRequest) -> bool {
         if let Some(res_id) = request.reservation_id {
             let inventory_addr = storage::get_inventory_contract(env);
             let inv_client = InventoryContractClient::new(env, &inventory_addr);
-            inv_client.release_reservation(&res_id);
-            request.reservation_id = None;
-            true
+            let result = inv_client.try_release_reservation(&res_id);
+
+            match result {
+                Ok(_) => {
+                    request.reservation_id = None;
+                    true
+                }
+                Err(_) => {
+                    env.events().publish(
+                        (soroban_sdk::symbol_short!("res_err"),),
+                        (res_id,),
+                    );
+                    request.reservation_id = None;
+                    true
+                }
+            }
         } else {
             false
         }
@@ -301,26 +326,21 @@ impl RequestContract {
         }
 
         let old_status = request.status;
+
+        if !Self::is_valid_transition(&old_status, &new_status) {
+            return Err(ContractError::InvalidRequestStatus);
+        }
+
         let mut released_reservation = false;
         let mut fulfilled_delta_ml = 0;
 
         match new_status {
-            RequestStatus::Approved => {
-                if old_status != RequestStatus::Pending {
-                    return Err(ContractError::InvalidRequestStatus);
-                }
-            }
+            RequestStatus::Approved => {}
             RequestStatus::Rejected => {
-                if old_status != RequestStatus::Pending && old_status != RequestStatus::Approved {
-                    return Err(ContractError::InvalidRequestStatus);
-                }
                 Self::ensure_non_empty_reason(&reason)?;
                 released_reservation = Self::release_reservation_if_present(&env, &mut request);
             }
             RequestStatus::Fulfilled => {
-                if old_status != RequestStatus::Approved && old_status != RequestStatus::InProgress {
-                    return Err(ContractError::InvalidRequestStatus);
-                }
                 let remaining = request.quantity_ml.saturating_sub(request.fulfilled_quantity_ml);
                 fulfilled_delta_ml = remaining;
                 request.fulfilled_quantity_ml = request.quantity_ml;
