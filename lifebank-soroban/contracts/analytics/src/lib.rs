@@ -32,6 +32,23 @@ fn require_admin(env: &Env) -> Result<AnalyticsConfig, AnalyticsError> {
     Ok(cfg)
 }
 
+fn require_authorized_caller(env: &Env) -> Result<AnalyticsConfig, AnalyticsError> {
+    let cfg = require_initialized(env)?;
+    let caller = env.invoker();
+    
+    // Allow admin or any authorized domain contract
+    if caller == cfg.admin 
+        || caller == cfg.inventory_contract
+        || caller == cfg.requests_contract
+        || caller == cfg.payments_contract
+        || caller == cfg.reputation_contract
+    {
+        Ok(cfg)
+    } else {
+        Err(AnalyticsError::Unauthorized)
+    }
+}
+
 fn current_period_index(env: &Env, duration_secs: u64) -> u64 {
     env.ledger().timestamp() / duration_secs
 }
@@ -157,9 +174,9 @@ impl AnalyticsContract {
 
     // ── Metric ingestion ──────────────────────────────────────────────────────
 
-    /// Record a new donation. Admin only.
+    /// Record a new donation. Authorized callers only (admin or domain contracts).
     pub fn record_donation(env: Env) -> Result<(), AnalyticsError> {
-        let cfg = require_admin(&env)?;
+        let cfg = require_authorized_caller(&env)?;
         let idx = current_period_index(&env, cfg.reporting_period.duration_secs);
         let mut snap = load_snapshot(&env, idx);
         snap.total_donations += 1;
@@ -173,9 +190,9 @@ impl AnalyticsContract {
         Ok(())
     }
 
-    /// Record a new blood request. Admin only.
+    /// Record a new blood request. Authorized callers only (admin or domain contracts).
     pub fn record_request(env: Env) -> Result<(), AnalyticsError> {
-        let cfg = require_admin(&env)?;
+        let cfg = require_authorized_caller(&env)?;
         let idx = current_period_index(&env, cfg.reporting_period.duration_secs);
         let mut snap = load_snapshot(&env, idx);
         snap.total_requests += 1;
@@ -189,9 +206,9 @@ impl AnalyticsContract {
         Ok(())
     }
 
-    /// Record a completed delivery. Admin only.
+    /// Record a completed delivery. Authorized callers only (admin or domain contracts).
     pub fn record_delivery(env: Env) -> Result<(), AnalyticsError> {
-        let cfg = require_admin(&env)?;
+        let cfg = require_authorized_caller(&env)?;
         let idx = current_period_index(&env, cfg.reporting_period.duration_secs);
         let mut snap = load_snapshot(&env, idx);
         snap.total_deliveries += 1;
@@ -205,9 +222,9 @@ impl AnalyticsContract {
         Ok(())
     }
 
-    /// Record a released payment with its amount. Admin only.
+    /// Record a released payment with its amount. Authorized callers only (admin or domain contracts).
     pub fn record_payment_released(env: Env, amount: i128) -> Result<(), AnalyticsError> {
-        let cfg = require_admin(&env)?;
+        let cfg = require_authorized_caller(&env)?;
         let idx = current_period_index(&env, cfg.reporting_period.duration_secs);
         let mut snap = load_snapshot(&env, idx);
         snap.total_payments_released += 1;
