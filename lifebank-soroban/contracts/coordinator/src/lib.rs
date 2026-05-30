@@ -443,7 +443,7 @@ impl CoordinatorContract {
                 symbol_short!("alloc"),
                 symbol_short!("v1"),
             ),
-            (request_id, unit_ids.len()),
+            (request_id, unit_ids.clone(), unit_ids.len()),
         );
 
         save_workflow(

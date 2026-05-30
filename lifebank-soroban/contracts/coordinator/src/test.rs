@@ -533,6 +533,24 @@ fn test_flag_temperature_breach_blocked_when_paused() {
     assert_eq!(payment.status, PaymentStatus::Locked);
 }
 
+// ── Issue #818: allocate_units event includes unit IDs ────────────────────────
+
+#[test]
+fn test_allocate_units_event_includes_unit_ids() {
+    let h = setup();
+    seed_pending_request(&h, 1);
+    let unit_id = register_unit(&h);
+    let payment_id = create_locked_payment(&h, 1);
+
+    h.coord.allocate_units(&1u64, &vec![&h.env, unit_id], &payment_id, &h.admin);
+
+    // Workflow must be Allocated and unit_ids must be stored correctly.
+    let wf = h.coord.get_workflow(&1u64);
+    assert_eq!(wf.status, WorkflowStatus::Allocated);
+    assert_eq!(wf.unit_ids.len(), 1);
+    assert_eq!(wf.unit_ids.get(0).unwrap(), unit_id);
+}
+
 // ── Workflow expiry tests (issue #855) ────────────────────────────────────────
 
 use soroban_sdk::testutils::Ledger as _;
