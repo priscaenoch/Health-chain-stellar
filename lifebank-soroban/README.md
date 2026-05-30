@@ -1,44 +1,83 @@
 # Lifebank Soroban Contracts
 
-This workspace contains the Lifebank Soroban smart contracts used by Health-chain.
+On-chain smart contract layer for the HealthChain blood supply platform, built with [Soroban](https://soroban.stellar.org/) on Stellar.
 
-## Project structure
+## What's here
 
-The repository uses a Cargo workspace with contract crates located under `contracts/*`.
+Ten contracts that together manage the full blood donation lifecycle — from registration through delivery and payment settlement:
 
-Existing contract directories include:
+| Contract | Purpose |
+|---|---|
+| **coordinator** | Orchestrates the three-step delivery workflow across inventory, payments, and requests |
+| **inventory** | Registers blood units, tracks status transitions, manages reservations |
+| **requests** | Hospital blood requests with approval workflow and history |
+| **payments** | Escrow-backed payments, dispute handling, donation pledges |
+| **temperature** | IoT cold-chain monitoring with automatic excursion escalation |
+| **matching** | ABO/Rh compatibility matching with FIFO expiration-aware selection |
+| **identity** | Organization registry, role-based access, badges, delivery verification |
+| **reputation** | Weighted reputation scoring with decay, fraud penalties, and violation tracking |
+| **analytics** | Periodic metrics snapshots and lifetime counters |
+| **delivery** | Compliance attestation hashes for completed deliveries |
 
-- `analytics`
-- `coordinator`
-- `delivery`
-- `identity`
-- `inventory`
-- `matching`
-- `payments`
-- `reputation`
-- `requests`
-- `temperature`
+The coordinator is the integration point. It holds references to inventory, payments, and requests, and enforces the canonical three-step workflow: `allocate_units → confirm_delivery → settle_payment`.
 
-Each contract directory contains its own `Cargo.toml` and source files, while the top-level `Cargo.toml` provides shared workspace dependency definitions.
+## Prerequisites
 
-## Running tests
-
-From the repository root:
+- Rust toolchain with `wasm32-unknown-unknown` target
+- Soroban CLI (`cargo install --locked soroban-cli`)
+- A funded Stellar testnet account (use `soroban keys generate` or Stellar Laboratory)
 
 ```bash
-cargo test
+# Add the WASM target if you haven't already
+rustup target add wasm32-unknown-unknown
 ```
 
-## Contract development
+## Build
 
-- Add new contracts under `contracts/<contract-name>`.
-- Each contract must include its own `Cargo.toml`.
-- Shared dependencies are declared in the top-level workspace `Cargo.toml`.
+```bash
+# From the lifebank-soroban directory
+cargo build --release --target wasm32-unknown-unknown
 
-## Environment
+# Or use the helper script
+./scripts/build-all.sh
+```
 
-This workspace does not require any `.env` variables by default. If your local Soroban toolchain or contract scripts need environment variables, add them to a `.env` file and keep it out of source control.
+WASM artifacts land in `target/wasm32-unknown-unknown/release/`.
 
-## Notes
+## Test
 
-This repository no longer uses the starter `hello_world` template. Use the contracts already present under `contracts/`.
+```bash
+# Run all unit and integration tests
+cargo test
+
+# Run only the cross-contract integration tests
+cargo test --package tests
+
+# Run tests for a single contract
+cargo test --package inventory-contract
+```
+
+The integration tests in `tests/integration_test.rs` exercise the full coordinator workflow using lightweight mock contracts. See [ARCHITECTURE.md](ARCHITECTURE.md) for what each test covers.
+
+## Deploy
+
+See [docs/deployment.md](docs/deployment.md) for step-by-step testnet and mainnet deployment instructions.
+
+A quick testnet deploy:
+
+```bash
+./scripts/deploy-testnet.sh
+```
+
+Contract addresses are written to `.contract-ids.json` after deployment.
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — contract dependency graph and data flow
+- [docs/contracts/coordinator.md](docs/contracts/coordinator.md) — coordinator function reference
+- [docs/contracts/inventory.md](docs/contracts/inventory.md) — inventory function reference
+- [docs/contracts/payments.md](docs/contracts/payments.md) — payments function reference
+- [docs/contracts/temperature.md](docs/contracts/temperature.md) — temperature monitoring reference
+- [docs/contracts/requests.md](docs/contracts/requests.md) — requests function reference
+- [docs/deployment.md](docs/deployment.md) — deployment guide
+- [docs/indexing.md](docs/indexing.md) — event schema for off-chain indexers
